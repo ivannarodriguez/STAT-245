@@ -1,0 +1,210 @@
+---
+title: "Stat 245 -- HW 10"
+author: "Ivanna Rodriguez"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  pdf_document:
+    fig_height: 2.2
+    fig_width: 4
+  html_document:
+    fig_height: 2.2
+    fig_width: 4
+  word_document:
+    fig_height: 2.2
+    fig_width: 4
+---
+
+```{r, setup, include = FALSE}
+# load packages that are going to be used
+require(tidyverse)   # this loads mosaic, ggformula, etc. too
+require(ggformula)
+require(mosaic)
+
+# Some customization.  You can alter or delete as desired (if you know what you are doing).
+
+theme_set(theme_bw(base_size=12))     # change theme for ggplot2/ggformula
+
+knitr::opts_chunk$set(
+  echo = TRUE,      # for homework, always show R code (this is the default)
+  tidy = FALSE,     # display code as typed (rather than reformatted)
+  size = "small",   # slightly smaller font for code
+  message = FALSE, warning = FALSE) # don't print warnings or messages in compiled document. So you MUST check them in RStudio!
+```
+
+
+<!-- Put your work below here.  Put text in text chunks, code in R chunks. -->
+
+```{r}
+# reading in the data
+deer <- read_csv('http://sldr.netlify.com/data/deer.csv')
+```
+
+```{r}
+glimpse(deer)
+```
+
+
+## Initial Model
+```{r}
+deer_logr <- glm(parasite_presence ~ factor(farm) + factor(sex) + length,
+                 data=deer, family=binomial(link='logit'))
+summary(deer_logr)
+```
+
+```{r}
+# checking for multicolinearity
+car::vif(deer_logr)
+```
+
+There is no evidence of multicollinearity from the GVIFs scores above.
+
+```{r, fig.height=3}
+# model assessment plots
+# independence
+acf(resid(deer_logr))
+```
+
+```{r}
+# residuals-vs-fitted plots
+gf_point(resid(deer_logr, type='pearson') ~ fitted(deer_logr)) %>%
+  gf_labs(title='deer_logr', 
+          y=' Pearson\nResiduals',x='Fitted Values')
+
+gf_point(resid(deer_logr, type='deviance') ~ fitted(deer_logr)) %>%
+  gf_labs(title='deer_logr', 
+          y=' Deviance\nResiduals',x='Fitted Values')
+
+
+gf_point(resid(deer_logr, type='response') ~ fitted(deer_logr)) %>%
+  gf_labs(title='deer_logr', 
+          y=' Raw Response\nResiduals',x='Fitted Values')
+```
+
+The assumptions of a logistic regression seem to be met with this model. The ACF plot shows no evidence against independence, and the residual vs fitted plot shows that residuals decrease as a function of fitted value, and have approximately constant variance.   
+
+## Random Effects
+
+For the random effects model, I chose farm as the random effects variable because there might be variability within the farms that we should account for.
+
+```{r}
+# Revised version of model including one random effect
+require(glmmTMB)
+
+deer_rem <- glmmTMB(data = deer, parasite_presence ~ factor(sex) + length + (1|farm), na.action = 'na.fail', family=binomial(link='logit'))
+summary(deer_rem)
+```
+
+```{r, fig.height=3}
+# model assessment
+# linearity and constant variance
+gf_point(resid(deer_rem)~fitted(deer_rem), alpha = 0.5)
+
+# independence
+acf(resid(deer_rem))
+```
+
+The conditions are met with the random effects model, and the ACF plots are almost identical. It is hard to tell which of the two fit my data best.
+
+```{r}
+# model selection - logistic v random effect
+require(MuMIn)
+AIC(deer_logr, deer_rem)
+BIC(deer_logr, deer_rem)
+```
+
+AIC reports that the logistic regression model is better than the random effects model. The BIC reports the complete opposite however. I am going to go with the BIC for this one because the difference between models is around 70. 
+
+
+```{r}
+# model selection - predictors
+deer_rem <- deer_rem %>% update(na.action = 'na.fail')
+
+deer_dredge <- dredge(deer_rem, rank='BIC')
+pander::pander(head(deer_dredge, 5))
+
+deer_dredge <- dredge(deer_rem, rank='AIC')
+pander::pander(head(deer_dredge, 5))
+```
+
+According to the BIC, the best model is that with lenght as predictor. It excludes the predictor sex.
+
+## GEE
+
+```{r}
+# shorter dataset to make code run faster
+deer_by_farm <- deer %>%
+  group_by(farm) %>%
+  summarise(n_obs = n()) %>% 
+  ungroup() %>%
+  filter(n_obs > 2) %>%
+  mutate(farm = factor(farm))
+
+deer2 <- deer %>%
+  filter(farm %in% levels(deer_by_farm$farm)) %>%
+  mutate(farm = factor(farm))
+```
+
+```{r}
+# fitting GEEs
+require(geepack)
+gee_ind <- geeglm(parasite_presence ~ sex + length
+                , id = farm, 
+                data = deer2, na.action = 'na.fail',
+                corstr = 'ind',
+              family=binomial(link='logit'))
+summary(gee_ind)
+```
+
+```{r}
+gee_exch <- geeglm(parasite_presence ~ sex + length
+                , id = farm, 
+                data = deer2, na.action = 'na.fail',
+                corstr = 'exch',
+              family=binomial(link='logit'))
+summary(gee_exch)
+```
+
+```{r}
+gee_ar1 <- geeglm(parasite_presence ~ sex + length
+                , id = farm, 
+                data = deer2, na.action = 'na.fail',
+                corstr = 'ar1',
+              family=binomial(link='logit'))
+summary(gee_ar1)
+```
+
+```{r}
+QIC(gee_ind, gee_exch, gee_ar1, typeR = TRUE)
+```
+
+```{r, fig.height=3}
+# model assessment for best model according to QIC
+acf(resid(gee_ind))
+```
+
+This GEE model looks a lot worse than the other two (the logistic model and the random effects model). The others did not have an issue with the independence of residuals, but the residuals in this model seem to not be independent at all. 
+
+```{r}
+# choosing predictors
+require(s245)
+anova_results <- gee_anova(gee_ind)
+anova_results$pvals
+```
+According to the ANOVA test above, the length predictor is the only one preserved. Sex is not as important (this was seen in some BIC results with the previous logistic model too, so it is not surprising).
+
+```{r}
+# prediction plots for gee_ind model
+pred_plot(gee_ind, 'length') %>%
+  gf_labs(y = 'Predicted parasite presence')
+```
+
+The plot above is saying that the longer the deer is, the higher the likelihood that the deer will have parasites, according to the best GEE model. 
+
+
+
+
+
+
+
+
+  

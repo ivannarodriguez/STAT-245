@@ -1,0 +1,224 @@
+---
+title: "Stat 245 -- HW 4"
+author: "Ivanna Rodriguez"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  pdf_document:
+    fig_height: 2.2
+    fig_width: 4
+  html_document:
+    fig_height: 2.2
+    fig_width: 4
+  word_document:
+    fig_height: 2.2
+    fig_width: 4
+---
+
+```{r, setup, include = FALSE}
+# load packages that are going to be used
+require(tidyverse)   # this loads mosaic, ggformula, etc. too
+require(ggformula)
+require(mosaic)
+
+# Some customization.  You can alter or delete as desired (if you know what you are doing).
+
+theme_set(theme_bw(base_size=12))     # change theme for ggplot2/ggformula
+
+knitr::opts_chunk$set(
+  echo = TRUE,      # for homework, always show R code (this is the default)
+  tidy = FALSE,     # display code as typed (rather than reformatted)
+  size = "small",   # slightly smaller font for code
+  message = FALSE, warning = FALSE) # don't print warnings or messages in compiled document. So you MUST check them in RStudio!
+```
+<!-- Put your work below here.  Put text in text chunks, code in R chunks. -->
+### 1. Candy
+**Use AIC and BIC and all-subsets model selection (dredge()) on the candy model (we used this as practice in class, and it featured in the sample solutions for HW3).**
+
+```{r}
+# loading the data
+candy <- 
+  read.csv('https://raw.githubusercontent.com/fivethirtyeight/data/master/candy-power-ranking/candy-data.csv')
+# change integers 1 and 0 to yes and no
+candy <- candy %>%
+  mutate_if(is.integer, function(x) ifelse(x == 0, 'no', 'yes'))
+glimpse(candy)
+```
+
+**A. Fit a full model with multiple predictors (either the one I used in the HW3 solutions, or your own model). You do not need to do data exploration or model assessment, because we already did them - just fit the model.**
+
+```{r}
+# fitting the model
+candy_model <- lm(winpercent ~ chocolate + fruity + caramel + peanutyalmondy + nougat + crispedricewafer + hard + bar + pluribus + sugarpercent + pricepercent, data = candy)
+
+# model results
+summary(candy_model)
+
+# likelihood
+as.numeric(logLik(candy_model))
+```
+
+**B. Use ```dredge()``` with AIC and report the best model (which predictors are retained)?**
+
+The best model according to the output is model 1213, with ```chocolate```, ```crispedricewafer```, ```fruity```, ```hard```, and ```peanutyalmondy``` as predictors.
+
+```{r}
+# import MuMIn package to use dredge() function
+require(MuMIn)
+
+# make sure data has no missing values
+candy_model <- candy_model %>% update(na.action = 'na.fail')
+candy_dredge <- dredge(candy_model, rank = 'AIC')
+# pander creates a nice table
+pander::pander(head(candy_dredge, 7))
+```
+
+**C. Use ```dredge()``` with BIC and report the best model (which predictors are retained)?**
+
+The best model according to the output is model 149, with ```chocolate```, ```fruity```, and ```peanutyalmondy``` as predictors.
+
+```{r}
+# import MuMIn package to use dredge() function
+require(MuMIn)
+
+# make sure data has no missing values
+candy_model <- candy_model %>% update(na.action = 'na.fail')
+candy_dredge <- dredge(candy_model, rank = 'BIC')
+# pander creates a nice table
+pander::pander(head(candy_dredge, 7))
+```
+
+**D. Do you get the same “best” model for parts B and C? Why do you think this is the case?**
+
+Although ```chocolate```, ```fruity```, and ```peanutyalmondy``` are present in both AIC and BIC, I get different best models for parts B and C. The BIC ommitted ```hard``` and ```crispedricewafer```. This makes sense becuase the BIC calculation has a larger penalty term, which means that BIC will often select smaller models than AIC will.
+
+### 2. pyth? Do problem 1 from Chapter 3 of your text book (page 49). You can use the R code below to get the data set and split it into two parts: ```train``` for fitting the model, and ```test``` for making predictions.
+
+```{r}
+pyth <- read.table('http://www.stat.columbia.edu/~gelman/arm/examples/pyth/exercise2.1.dat',
+                   header = TRUE)
+pyth_train <- pyth %>% filter(!is.na( y ))
+pyth_test <- pyth %>% filter(is.na( y ))
+```
+
+```{r}
+glimpse(pyth)
+```
+
+**a) Use R to fit a linear regression model predicting y from x1, x2, using the first 40 data points in the file. Summarize the inferences and check the fit of your model**
+
+While x1 seems to be spreadout without a clear pattern, there seems to be a linear increase in x2. 
+
+```{r}
+# exploring the data
+gf_point(y ~ x1, data = pyth_train)
+gf_point(y ~ x2, data = pyth_train)
+```
+
+
+```{r}
+# creating the model
+pyth_model <- lm(y ~ x1 + x2, data = pyth_train)
+# summarizing inferences
+summary(pyth_model) 
+# checking model fit
+summary(pyth_model)$r.squared
+```
+
+The equation of the fitted model is:
+$$y = 1.32 + 0.51x_1 + 0.81x_2 + \epsilon$$
+$$\epsilon\sim N(\mu, \sigma)$$
+
+The adjusted R squared for this model is 0.97, indicating a very good fit of the model to the data. The model is able to account for 97% of the variation in y (assuming all conditions are met).
+
+**b) Display the estimated model graphically as in Figure 3.2. - Prediction Plots**
+
+```{r}
+require(s245)
+get_fixed(pyth_train)
+```
+```{r}
+pred_plot(pyth_model, 'x1')%>%
+  gf_labs(title = 'Model Predictions',
+          y = 'Predicted Value of y')
+```
+```{r}
+pred_plot(pyth_model, 'x2')%>%
+  gf_labs(title = 'Model Predictions',
+          y = 'Predicted Value of y')
+```
+
+The prediction plots show that according to our model, y increases linearly with both predictors x1 and x2. However, while the confidence interval for x2 is quite narrow, indicating minimal uncertainty in our estimate of the slope and intercept of the model, the confidence interval for x1 is wider, especially for values less than or greater than the middle values.  
+
+**c) Make a residual plot for this model. Do the assumptions appear to be met?**
+```{r}
+# chhecking model conditions
+# linearity
+gf_point(resid(pyth_model) ~ fitted(pyth_model))
+```
+```{r}
+# Constant variance of residuals
+
+# Normality of residuals
+gf_histogram(~resid(pyth_model), bins = 11)
+```
+```{r}
+# independence of residuals
+acf(resid(pyth_model), main = '')
+```
+
+The first residual vs fitted plot shows signs of a pattern, as residuals become closer together towards the end, indicating a non-linear relationship. The scatterplot also shows an uneven spread of the residual points, suggesting that there could be a problem with non-constant variance for the model residuals. From the histogram, we can see that the distribution of the residuals is quite skewed to the right - it is not symmetric. The normality condition is not met. The ACF plot shows that there is no evidence of a non-independence problem for the most part, as most values fall within the confidence interval (blue line). 
+
+Because the linearity and constant variance conditions of residuals were not met, however, we would not expect the model slope and intercept estimates to be reliable or correct.
+
+**d) Make predictions for the remaining 20 data points in the file. How confident do you feel about these predictions?**
+
+I don't feel too confident about the predictions because there is evidence of non-linearity between the predictors, so the predictions might not be too accurate.
+
+```{r}
+predict(pyth_model, newdata = pyth_test)
+```
+
+### 3. Add-on to pyth. Use AIC and BIC to do model selection for the model you just fitted to the pyth data. What is the "best model in each case?" Are they the same (and why do you think this is the case)?
+```{r}
+# AIC
+pyth_train <- na.omit(pyth_train)
+pyth_model <- lm(y ~ x1 + x2, data = pyth_train,
+               na.action = 'na.fail')
+pyth_dredge <- dredge(pyth_model, rank = 'AIC')
+pander::pander(head(pyth_dredge, 7))
+```
+
+```{r}
+# BIC
+pyth_dredge <- dredge(pyth_model, rank = 'BIC')
+pander::pander(head(pyth_dredge, 7))
+```
+
+The best model is the same for both AIC and BIC, and it is the model that contains both x1 and x2 as predictors. Although this is the case, we can't say that this is a good model because our conditions for linear regression were not met.
+
+### 4. Exploring Model Selection Mistakes
+```{r}
+# make dataset sim_results with variable AIC_diff to hold results
+sim_results <- data.frame(AIC_diff = rep(NA, 1000))
+for (i in 1:1000){ #repeat 1000 times
+  # create x variable
+  x <- rnorm(1000)
+  # create y variable, independent of x
+  y <- rnorm(1000)
+  # fit model
+  fit <- lm(y ~ x)
+  # fit intercept-only model
+  int_only <- update(fit, . ~ . -x)
+  # store result
+  sim_results$AIC_diff[i] <- AIC(int_only) - AIC(fit)
+}
+```
+
+```{r}
+gf_histogram(~AIC_diff, data= sim_results)
+prop(~AIC_diff >= 3, data = sim_results)
+```
+
+The histogram above shows that there are more small AIC values than large AIC values for the model meaning that we are more right than we are wrong most of the time when determining model fit. 
+
+  

@@ -1,0 +1,245 @@
+---
+title: "Stat 245 -- HW 6"
+author: "Ivanna Rodriguez"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  html_document:
+    fig_height: 2.2
+    fig_width: 4
+  pdf_document:
+    fig_height: 2.2
+    fig_width: 4
+  word_document:
+    fig_height: 2.2
+    fig_width: 4
+---
+
+```{r, setup, include = FALSE}
+# load packages that are going to be used
+require(tidyverse)   # this loads mosaic, ggformula, etc. too
+require(ggformula)
+require(mosaic)
+
+# Some customization.  You can alter or delete as desired (if you know what you are doing).
+
+theme_set(theme_bw(base_size=12))     # change theme for ggplot2/ggformula
+
+knitr::opts_chunk$set(
+  echo = TRUE,      # for homework, always show R code (this is the default)
+  tidy = FALSE,     # display code as typed (rather than reformatted)
+  size = "small",   # slightly smaller font for code
+  message = FALSE, warning = FALSE) # don't print warnings or messages in compiled document. So you MUST check them in RStudio!
+```
+
+## 1. Bees, Flowers and model averaging.
+The code below reads in the bees and flowers dataset and does a little data tidying.
+
+```{r}
+beevisits <- read.csv('http://sldr.netlify.com/data/beevisits.csv')
+require(forcats)
+beevisits <- beevisits %>%
+  #make the names of the treatments capitalized
+  mutate(treatment = fct_recode(treatment,
+                    #syntax is: NewLevelName='OldLevelName'
+                      Quinine = 'quinine',
+                      Cellulose='cellulose',
+                      Sucrose ='sucrose')) %>%
+  #make "Cellulose" the base level of treatment
+  mutate(treatment = fct_relevel(treatment,
+                                 'Cellulose'))
+```
+
+### A. Fit
+Consider the model we used in class as an example of Poisson regression – modelling the bees and flowers data. Start by fitting the saturated (full) model below – Poisson and negative binomial versions:
+
+```{r}
+require(glmmTMB)
+prm <- glm(novisits ~ flower + treatment + colony, 
+           data=beevisits, family=poisson(link='log'))
+
+nb1m <- glmmTMB(novisits ~ flower + treatment + colony, 
+           data=beevisits, family=nbinom1(link='log'))
+
+nb2m <- glmmTMB(novisits ~ flower + treatment + colony, 
+           data=beevisits, family=nbinom2(link='log'))
+
+summary(prm)
+summary(nb1m)
+summary(nb2m)
+
+```
+
+### B. Select
+Use AIC() or BIC() to choose between the families (Poisson, negative binomial), then dredge() to do predictor selection based on AIC or BIC. Which model do you think is the overall best model, and why?
+
+```{r}
+# using AIC to choose between the families
+AIC(prm, nb1m, nb2m)
+```
+
+```{r}
+# using dredge to do predictor selection
+require(MuMIn)
+# have to make sure na.action is 'na.fail' for input model
+prm <- update(prm, na.action='na.fail')
+dredge(prm, rank='AIC')
+dredge(nb1m, rank = 'AIC')
+dredge(nb2m, rank = 'AIC')
+```
+
+Based on the AIC results above, the best model is nb1m (lowest AIC by at least 3). Based on the dredge results, we can also see that n1bm is the best model, with colony, flower, and treatment as predictors (lowest AIC compared to the other models, also model 8 contains the highest weight because it is the best model out of the combinations of nb1m with other predictors).
+
+### C. Predict
+Make a prediction plot for the number of visits as a function of ```treatment```, based on your best model. Describe the pattern you see in a sentence or so. Note: normally we would further verify that the model passed model assessment checks before making predictions; we are skipping that step here as we already did it in class and found that things looked OK.
+
+```{r}
+require(s245)
+pred_plot(nb1m, 'treatment', ylab = 'Predicted\nVisits')
+```
+```{r}
+get_fixed(beevisits) %>%
+  select(colony, flower) %>%
+  pander::pander()
+```
+According to this prediction plot, if ```colony``` is fixed at 'W' and ```flower``` is fixed at "familiar", then the predicted number of bee visits under Sucrose treatment is about 4.5, which is slightly more visits than those under "Cellulose", and a lot greater than those under "Quinine."
+
+### D. Average
+Now, do model averaging to find a new (average) best model based on the same saturated model. Report the equation of this new, model-averaged best model. You will use the function ```model.avg()``` from package ```MuMIn``` – covered in class Thursday 10/10 (sorry - was supposed to be Monday-Tuesday but delayed due to illness). See course notes pre-posted for Thursday if you want to work ahead.
+
+```{r}
+require(MuMIn)
+nb1m <- update(nb1m, na.action = 'na.fail')
+nb1m.dredge <- dredge(nb1m, rank = 'BIC')
+nb1m.ave <- model.avg(nb1m.dredge, fit = TRUE)
+summary(nb1m.ave)
+```
+The equation of my fitted model is:
+
+$$ log(\lambda_i) = 1.41 - 0.11I_x - 0.38I_y - 0.72I_{novel} + 1.04I_{target} - 0.71I_{Quinine} + 0.02I_{Sucrose} + \epsilon$$
+$$y_i \sim NB1( \mu_i = \lambda_i, \alpha) $$
+Where $y_i$ is the observed number of bee visits to flowers, $I_x$ and $I_y$ are indicator variables which have value 1 when the colony is “X” or “Y” respectively, and 0 otherwise; $I_{Quinine}$ is an indicator variable that is 1 when the treatment is “Quinine” and 0 otherwise, and $I_{Sucrose}$ is an indicator variable that is 1 when the treatment is “Sucrose” and 0 otherwise. ϵ are the residuals (no specific claim is made about their distribution).
+
+### E. Predict, again - and compare
+Finally, make a prediction plot for the number of visits as a function of treatment based on the averaged model. Compare it with the previous prediction plot you made. Are they similar or different? How can you explain the similarity or difference?
+
+```{r}
+pred_plot(nb1m.ave, 'treatment', ylab = 'Predicted\nVisits',
+          data = beevisits)
+```
+
+For the nb1m regression model and the ```treatment``` predictor, the prediction plots for the "single best" model and the model-averaged model look the same. It makes sense because this was the model with the highest weight, so it makes sense for the average to resemble the nb1m model. 
+
+## 2. Hawai’i Birds Revisited
+Use the Hawai’i birds data (link and data figures below):
+
+```{r}
+hi_birds <- read.csv('http://sldr.netlify.com/data/hawaii_birds.csv')
+gf_point(Birds ~ Year, data = hi_birds)
+gf_point(Birds ~ Rainfall, data = hi_birds)
+gf_boxplot(Birds ~ Species, data = hi_birds)
+gf_boxplot(Birds ~ Location, data = hi_birds)
+```
+
+### A. Overdispersed or not?
+Fit Poisson and negative binomial models with birds (the number of birds seen at each site) as the response variable, and the other variables as predictors (Use either Species.Location or Species and Location but not both). Note which you think is better and why (you will have to compute or check something to figure out which of the three you prefer…).
+
+```{r}
+sdr_data <- hi_birds %>% 
+  na.omit()
+sdr_data <- sdr_data %>%
+  mutate(scaled_Year = as.numeric(scale(Year)),
+         scaled_year2 = Year - min(Year))
+
+sdr_pois <- glm(Birds ~ Species.Location + Rainfall + scaled_Year,
+                data = sdr_data,
+                family = poisson(link = 'log'))
+
+sdr_nb1 <- glmmTMB(Birds ~ Species.Location + Rainfall + scaled_Year, 
+                data = sdr_data,
+                family = nbinom1(link = 'log'))
+
+sdr_nb2 <- glmmTMB(Birds ~ Species.Location + Rainfall + scaled_Year, 
+                data = sdr_data,
+                family = nbinom2(link = 'log'))
+
+summary(sdr_pois)
+summary(sdr_nb1)
+summary(sdr_nb2)
+```
+
+```{r}
+# comparing three models
+AIC(sdr_pois, sdr_nb1, sdr_nb2)
+```
+
+The best model of the ones fitted above is nb2, as it has the lowest AIC of the three.
+
+### B. Assess
+Make and interpret model assessment plots for your chosen model. If we fitted a linear model, we would have seen problems with non-constant variance, non-normal residuals, and non-independent residuals. How does this model compare? Note: if there are problems, we should stop - the model is not trustworthy! But as a homework exercise, do parts C-D either way.
+```{r}
+# compute Pearson rediduals and fitted values
+# remove missing values
+sdr_data <- sdr_data %>%
+  mutate(resids = resid(sdr_nb2, type = 'pearson'),
+         fitted = predict(sdr_nb2))
+
+# make residuals vs fitted plots
+gf_point(resids ~ fitted, data = sdr_data, 
+         ylab = 'Pearson Residuals', xlab = "Fitted Values")
+```
+
+The scatterplot above shows that there is approximately constant variance of residuals, though in some parts they are a lot more close together (fitted values between 5.5 and 6.0) than in others. Because of the clustered residuals, I am inclined to say that the variance is not constant.
+
+```{r}
+gf_point(log(Birds) ~ Rainfall, data = sdr_data)
+```
+
+The scatterplot above shows no non-linear trends.
+
+```{r}
+gf_point(log(Birds) ~ scale(Year), data = sdr_data)
+```
+
+The scatterplot above shows somewhat of a linear relationship (although the points seem to increase).
+
+```{r}
+acf(resid(sdr_nb2), main = '')
+```
+
+The ACF plot above shows values that are outside the confidence bounds (lags 1-4) which means that the residuals are not independent, so the condition is not met.
+
+With the above plots, we see problems with constant variance, linearity and independence of residuals. 
+
+### C. Select
+Use an IC to carry out model selection. Report your best model (describing it in words or stating the model equation).
+```{r}
+dredge(sdr_nb2, rank = 'AIC')
+```
+
+According to AIC, the best model is the one that used all three predictors, model 8, which has the lowest AIC by at least 3 points.
+
+### D. Visualize
+Note how much easier it is to interpret these plots than the raw model coefficients!
+```{r}
+pred_plot(sdr_nb2, 'Rainfall', ylab = 'Predicted\nNumber of Coots')
+```
+According to the plot above, the number of Coots declines as the amount of rainfall increases at a site.
+
+```{r}
+get_fixed(sdr_data) %>%
+  select(Year, Location, Rainfall) %>%
+  pander::pander()
+```
+
+```{r}
+pred_plot(sdr_nb2, 'Species.Location', ylab = 'Predicted\nNumber Coots')
+```
+
+The predicted number of Coots is much higher in Oahu than in Maui. The predicted number of Stilts much higher in Oahu than in Maui. The predicted number of Stilts in Maui, however, is higher than the predicted number of Coots (with Year fixed at 1980 and Rainfall fixed at 16.26).
+ 
+ 
+ 
+
+
+
+

@@ -1,0 +1,101 @@
+---
+title: "Stat 245 -- HW 5"
+author: "Ivanna Rodriguez"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  pdf_document:
+    fig_height: 2.2
+    fig_width: 4
+  html_document:
+    fig_height: 2.2
+    fig_width: 4
+  word_document:
+    fig_height: 2.2
+    fig_width: 4
+---
+
+```{r, setup, include = FALSE}
+# load packages that are going to be used
+require(tidyverse)   # this loads mosaic, ggformula, etc. too
+require(ggformula)
+require(mosaic)
+
+# Some customization.  You can alter or delete as desired (if you know what you are doing).
+
+theme_set(theme_bw(base_size=12))     # change theme for ggplot2/ggformula
+
+knitr::opts_chunk$set(
+  echo = TRUE,      # for homework, always show R code (this is the default)
+  tidy = FALSE,     # display code as typed (rather than reformatted)
+  size = "small",   # slightly smaller font for code
+  message = FALSE, warning = FALSE) # don't print warnings or messages in compiled document. So you MUST check them in RStudio!
+```
+
+## 1. Fit a model
+Fit a linear regression model of your choice (ideally your “best” model from HW4) and display the summary of the model.
+
+```{r}
+# reading in the data
+candy <- 
+  read.csv('https://raw.githubusercontent.com/fivethirtyeight/data/master/candy-power-ranking/candy-data.csv')
+```
+
+```{r}
+# fitting the model
+candy_model <- lm(winpercent ~ chocolate + fruity + peanutyalmondy + crispedricewafer + hard, data = candy)
+summary(candy_model)
+```
+
+## 2. Compute model residuals
+
+```{r}
+# we add the residuals to our candy dataset
+candy <- candy %>%
+  mutate(resids = resid(candy_model))
+```
+
+## 3. Compute the likelihood for each residual
+
+```{r}
+# we compute the likelihood for each residual by using dnorm
+candy <- candy %>%
+  mutate(like = dnorm(resids, mean = 0, sd = 10.67)) # sd = residual standard error from model summary
+```
+
+## 4. Find the joint likelihood of all the data points
+
+We now have the likelihood of each individual data point. The joint likelihood of the whole dataset given the model is the product of all the individual likelihoods (since we have assumed the residuals are all independent). So we can compute the likelihood by using function ```prod()``` to compute the product of all the likelihoods:
+
+```{r}
+# multiplying all individual likelihoods
+joint_likelihood <- mosaic::prod(~like, data = candy)
+joint_likelihood
+```
+
+And the log-likelihood is just the natural logarithm of that:
+
+```{r}
+log(joint_likelihood)
+```
+
+Verify that this result is (about) the same as you get from the function logLik():
+
+```{r}
+logLik(candy_model)
+```
+
+Since the numbers are often small, it can be easier to compute the sum of their natural logarithms instead of computing the product of the likelihoods themselves. This avoids the problem of getting a joint likelihood that is numerically equal to 0. Here, (as we just saw) the product computation works OK and gives the same answer as working on the log scale – computing the log() of each likelihood, and then using sum() to add them up:
+
+```{r}
+candy <- candy %>%
+  mutate(loglike = log(like))
+# instead of using prod to multiply all indiv likelihoods, we are summing their natural logs
+mosaic::sum(~loglike, data = candy)
+```
+
+## 5. Comments
+
+This exercise was helpful for me to see  how likelihood is computed step by step. First, we compute the residuals, then their individual likelihoods, and then their joint likelihoods in order to get the log likelihood we are looking for and use in AIC and BIC computations. It was also helpful to understand the importance of the independence and normality of the residuals, as we can only multiply their likelihoods because they are independent. And we can use the ```dnorm``` function because the residuals follow a normal distribution. 
+
+
+  

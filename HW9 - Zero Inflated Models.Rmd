@@ -1,0 +1,198 @@
+---
+title: "Stat 245 -- HW 09"
+author: "Ivanna Rodriguez"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  pdf_document:
+    fig_height: 2.2
+    fig_width: 4
+  html_document:
+    fig_height: 2.2
+    fig_width: 4
+  word_document:
+    fig_height: 2.2
+    fig_width: 4
+---
+
+```{r, setup, include = FALSE}
+# load packages that are going to be used
+require(tidyverse)   # this loads mosaic, ggformula, etc. too
+require(ggformula)
+require(mosaic)
+
+# Some customization.  You can alter or delete as desired (if you know what you are doing).
+
+theme_set(theme_bw(base_size=12))     # change theme for ggplot2/ggformula
+
+knitr::opts_chunk$set(
+  echo = TRUE,      # for homework, always show R code (this is the default)
+  tidy = FALSE,     # display code as typed (rather than reformatted)
+  size = "small",   # slightly smaller font for code
+  message = FALSE, warning = FALSE) # don't print warnings or messages in compiled document. So you MUST check them in RStudio!
+```
+
+<!-- Put your work below here.  Put text in text chunks, code in R chunks. -->
+
+```{r}
+# loading in the data
+pests <- read.csv('http://sldr.netlify.com/data/pests.csv')
+
+# creating a categorical variable for month
+pests <- pests %>%
+  mutate(month_cat = factor(month))
+```
+
+```{r}
+# exploring the data
+glimpse(pests)
+head(pests)
+```
+
+
+# Tasks and Questions
+## 1. True Zero
+**If we were to model the number of complaints with a zero-inflated count data model, what would it mean for an observation to be a “true zero”? What about an “other zero”?**
+
+If there are no rodents, and therefore no complaints, this would be a "true zero." An "other zero" would be that there were rodents present in the apartment building, but that people did not file a complaint.
+
+## 2. Predictors
+**What predictors from the dataset do you think make sense to use to predict the probability of a “true zero”? What about to predict the number of complaints? (These might be the same predictors for both true zeros and counts, or two distinct sets.) Briefly explain your answer, citing as evidence both your own expectations about what might affect rodent complaints AND data exploration plots.**
+
+*Note: since the dataset is relatively small, you will only be able to successfully fit a model of a certain complexity. To keep your life simpler and avoid some model fitting errors/warnings, I recommend choosing up to 2-3 predictors for each part of the model and not too much more.*
+
+To predict the probability of a true zero (the probability that there were no rodents to complain about), and just complain counts in general, I would think of including these predictors from my own knowledge of what I expect might affect rodent complaints: how many traps there are in the building, whether the building has a caretaker, the amount each tennant pays for rent (I'd assume lower payments could mean more rodents), how big the building is and the time of year (month) might all be good predictors of complaints. We can check which predictors to use by plotting them. I used ```factor()``` to make some discrete variables categorical to look at boxplots for a better idea of their pattern.
+
+```{r}
+# exploratory plots
+gf_point(data = pests, complaints ~ traps)
+gf_boxplot(data = pests, complaints ~ factor(traps))
+gf_point(data = pests, complaints ~ total_sq_foot)
+gf_boxplot(data = pests, complaints ~ month_cat)
+gf_boxplot(data = pests, complaints ~ factor(live_in_super))
+```
+
+It is really hard for me to see a strong relatioship between any of the predictors and the response variable. I would assume that the higher the number of traps, the lower the number of complaints. It is very hard to see from the scatterplot, but from the boxplot I can kind of see this decreasing relationship, so I will include ```traps``` in the model as a predictor. I will also include ```month_cat``` because out of the other predictors where I can't really see a clear pattern (the total_sq_foot particularly) it seems to be the other one that could have a relationship, as there seem to slightly more complaints between july and september.
+
+## 3. Fit models
+**Fit three count data regression models (specifics listed below) with complaints as the response variable, using the sets of predictors you identified in the previous part. (If fitting a non-zero-inflated model, of course you won’t use the ZI predictors.)**
+
+```{r}
+# negative binomial 1 model with no zero-infation
+require(glmmTMB)
+
+nb1 <- glmmTMB(complaints ~ month_cat + traps, data = pests, family = nbinom1(link = 'log'), na.action = 'na.fail')
+summary(nb1)
+```
+
+```{r}
+# Poisson model with zero-inflation
+p_zi <- glmmTMB(complaints ~ month_cat + traps,
+        ziformula = ~ live_in_super, data = pests,
+        family = poisson(link = 'log'),
+        na.action = 'na.fail')
+summary(p_zi)
+```
+
+```{r}
+# negative binomial 1 model wt zero-inflation
+require(glmmTMB)
+nb1_zi <- glmmTMB(complaints ~ month_cat + traps,
+        ziformula = ~ live_in_super, data = pests,
+        family = nbinom1(link = 'log'),
+        na.action = 'na.fail')
+summary(nb1_zi)
+```
+
+## 4. Model selection
+**Use dredge() with all three of the models you just fitted. Comparing all the results, which model is the best of all those you considered (which type of model is it, does it have zero-inflation, and which predictors are included)? Choose just one - don’t consider model averaging as an option here.**
+
+*Note: in dredge() output, items preceded by cnd( are part of the count data model, and those preceded by zi( are part of the zero-inflation model.*
+
+```{r}
+# model selection
+require(MuMIn)
+
+#BIC between three models
+BIC(nb1, p_zi, nb1_zi)
+
+# negative binomial model
+nb1_dredge <- dredge(nb1, rank = 'BIC')
+head(nb1_dredge, 2)%>%
+  pander::pander()
+
+# poisson zero inflation model
+p_zi_dredge <- dredge(p_zi, rank = 'BIC')
+head(p_zi_dredge, 3) %>%
+  pander::pander()
+
+# negative binomial zero inflated model
+nb1_zi_dredge <- dredge(nb1_zi, rank = 'BIC')
+head(nb1_zi_dredge, 3) %>%
+  pander::pander()
+```
+
+From the output above, we can see that nb1 is the best model, with a BIC of 581.2 that includes only ```traps``` as the predictor variable.
+
+## 5. Model Assessment
+**Do model assessment for the model you selected as your best model, as best you are able. The plots you would like to be able to check are:**
+
+```{r}
+# Log(response) as a function of each quantitative predictor
+gf_point(data = pests, log(complaints) ~ traps)
+```
+
+The plot above shows a very weak downward sloping linear trend. So we can say that, although not obvious, there is no clear nonlinear trend so the condition is met.
+
+```{r}
+# residual ACF
+acf(resid(nb1))
+```
+
+Some residual values are not within the confidence bounds that we'd expect for independent residuals. Two values seem to be slightly high. Because of this, the independence condition seems to not be met.
+
+```{r}
+# Pearson residuals vs. fitted values
+gf_point(resid(nb1, type = 'pearson') ~ fitted(nb1, type= 'response'))
+```
+
+The spread of the residuals is bounded between -2 and 3, which is good, and the spread looks constant for the most part, although they seem a bit clustered at values between 2 and 4, and then they spread out as the fitted value gets larger. Overall, it does not look too problematic.
+
+## 6. Prediction Plots
+```{r}
+# prediction plot for nbm1
+require(s245)
+pred_plot(nb1, 'traps')
+```
+
+According to my model, the number of complaints decreases as the number of traps increase, which makes sense. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  

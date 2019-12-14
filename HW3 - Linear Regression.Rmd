@@ -1,0 +1,204 @@
+---
+title: "Stat 245 - HW 3"
+author: "Ivanna Rodriguez"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  pdf_document:
+    fig_height: 2.2
+    fig_width: 4
+  html_document:
+    fig_height: 2.2
+    fig_width: 4
+  word_document:
+    fig_height: 2.2
+    fig_width: 4
+---
+
+```{r, setup, include = FALSE}
+# load packages that are going to be used
+require(tidyverse)   # this loads mosaic, ggformula, etc. too
+require(ggformula)
+require(mosaic)
+
+# Some customization.  You can alter or delete as desired (if you know what you are doing).
+
+theme_set(theme_bw(base_size=12))     # change theme for ggplot2/ggformula
+
+knitr::opts_chunk$set(
+  echo = TRUE,      # for homework, always show R code (this is the default)
+  tidy = FALSE,     # display code as typed (rather than reformatted)
+  size = "small",   # slightly smaller font for code
+  message = FALSE, warning = FALSE) # don't print warnings or messages in compiled document. So you MUST check them in RStudio!
+```
+
+<!-- used write.csv(gapminder,'gapminder.csv') in to save the transformed gapminder data in hw1 to csv -->
+
+###  Problem 1: What is your response variable, and what are your candidate predictors?
+I will use the gapminder data. My response variable is `life expectancy`, the number of years a person is expected to live. My candidate predictors that I chose are:
+
+* `year` 
+* `income`
+* `four_regions`
+
+I included these predictors because I think that they could each have an effect on life expectancy, as I would assume that medicine advances throughout the years would increase life expenctancy, that the higher the income the greater the life expectancy, and that each of the different regions has conditions that affect life expectancy too - as some regions have lower or higher life expectancies on average.
+
+```{r}
+# loading the data
+gapminder <- read.csv('gapminder.csv')
+```
+```{r}
+glimpse(gapminder)
+```
+
+### Problem 2: Read your data into R and make a exploratory plots of the data. At minimum these should include the response variable as a function of each possible predictor variable.
+
+The first exploratory plot below (income) shows a clear pattern that violates the linearity assumption for regression analysis. The same can be seen with the second plot (year). The last plot shows us different average trends for each of the four regions, showing no linear trend.
+
+```{r fig.height=3.5, fig.width=8}
+# plotting the data
+gf_point(life_expectancy~income, color = ~four_regions, data = gapminder)%>%
+  gf_labs(y='Life expectancy (years)', x='income (dollars)')
+gf_point(life_expectancy~year, data = gapminder)%>%
+  gf_labs(y='Life expectancy (years)', x='year')
+gf_boxplot(life_expectancy~four_regions, data = gapminder)%>%
+  gf_labs(y='Life expectancy (years)', x='Four regions')
+```
+
+### Problem 3: Fit a linear regression to the data and report the equation of the best-fit line. Be sure to define all variables and notation you use - if you use xs or Is you should clearly state definitions for each one. Don’t forget to include the residuals and state what distribution they come from. This will be a challenge to typeset in Rmarkdown.
+```{r}
+# fitting regression model in R
+mlr <- lm(life_expectancy ~ income + year + four_regions, data = gapminder)
+# model results
+summary(mlr)
+```
+$$y = -300.4 + 0.0004income + 0.1772year + 5.186americas+ 0.8312asia+ 9.176europe + \epsilon$$
+Where
+
+* $y =$  life expectancy in years
+* $\beta_0 =$ the intercept 
+* $americas =$ indicator variable, 1 if americas, 0 otherwise
+* $asia =$ indicator variable, 1 if asia, 0 otherwise
+* $europe =$ indicator variable, 1 if europe, 0 otherwise
+* $africa =$ indicator variable not shown
+* $\epsilon =$ the residuals, $\epsilon\sim N(\mu, \sigma)$
+
+### Problem 4: List the conditions that must hold for linear regression to be appropriate for a dataset. For each one, indicate whether you think it holds, supporting your answer with one or more figures. Your written answer should specify what you see in the figure that guides your judgment. Note: normally you would stop working with a model if it did not pass these model assessment checks, but for purposes of this assignment, keep going either way...
+
+For linear regression to be appropriate for a dataset:
+
+* the sample should be representative of the population
+* the predictors should have a linear relationship with respect to the response variable
+* residuals should follow a normal distribution and be independent from each other
+* the error (residual) variance should be constant
+
+#### Linearity
+
+The plot below shows that residuals are not linear because there is a clear pattern.
+
+```{r fig.height=3.5, fig.width=8}
+gapminder2 <-gapminder %>%
+  select(life_expectancy, year, income, four_regions)%>%
+  na.omit()%>%
+  mutate(preds = predict(mlr))
+gapminder2 <- gapminder2%>%
+  mutate(res = resid(mlr),
+         fitted = predict(mlr))
+gf_point(res ~ fitted, data = gapminder2)%>%
+  gf_labs(x = 'Fitted Values', y = 'Residuals')
+
+```
+
+#### Independence of residuals
+
+All of the ACF values below exceed the confidence bounds which shows that there is evidence of non-independence in the residuals.  
+
+```{r fig.height=3.5, fig.width=8}
+acf(resid(mlr), main = '')
+```
+
+#### Normality of Residuals
+
+This is the only condition that seems to be met, as the histogram seems to be unimodal, and symmetric although a little skewed.
+
+```{r fig.height=3.5, fig.width=8}
+gf_histogram(~res, data = gapminder2, bins = 20)
+```
+
+#### Constant Variance of the Residuals
+
+The residuals are not spread out evenly, so their variance is not constant.
+```{r fig.height=3.5, fig.width=8}
+gf_point(res ~ fitted, data = gapminder2) %>%
+  gf_labs(y = 'Residuals', x = 'Fitted Values')
+```
+
+
+### Problem 5: Report the adjusted R^2 value of your model, and briefly explain what it means. Do you think this model fits the data well? Do you expect it to make precise predictions?
+```{r}
+# R squared
+summary(mlr)$r.squared
+```
+The adjusted $R^2$ value of this model is 0.7512. Because nearly none of the conditions for linear regression hold, this number does not have a lot of meaning for this particular model, since the linear model is not appropriate for this dataset. If the conditions were met, however, the adjusted $R^2$ would mean that all my predictors combine to explain about 75% of the variance in life expectancy. 
+
+### Problem 6: Make a scatter plot of your response variable and a quantitative predictor with the best-fitting “line” (prediction for the real dataset) overlaid. Based on our discussions in class, you’d expect this not to be a straight line. Comment on what you see in this plot and why you think it is the case. Hint: look back at your exploratory plots.
+The red line is an overlay of the fitted model predictions, while the black points are the original data. The predicted values do not lie on a straight line because they depend on the other predictor variables. It is clear from this graph how bad our model is, as it is underfitting and overfitting values - especially with higher incomes.
+
+```{r fig.height=3.5, fig.width=8}
+# filter data to have fewer points
+gapfiltered <- gapminder2%>%
+  # filter(year > 2015 & year < 2019)
+  filter(year == 2018)
+# scattterplot
+gf_point(life_expectancy~income, data = gapfiltered)%>%
+  gf_line(fitted ~ income, data = gapfiltered, color = 'red')%>%
+  gf_labs(y="Life Expectancy", x="Income")
+```
+
+
+### Problem 7: Create two or more prediction plots to visualize what your model says about the relationships in the data. One should be made “by hand” (using expand.grid()) and other(s) can use pred_plot().
+###Problem 8: Write one sentence describing the pattern you see in each of your prediction plots. These can be interspersed with the plots, if it makes formatting and organization easier.
+
+The plots below show predictions from the fitted model that show how life expectancy depends on income and on the four regions. 
+```{r fig.height=3.5, fig.width=8}
+# using pred_plot #1
+require(s245)
+pred_plot(mlr, 'four_regions')%>%
+  gf_lims(y = c(0,100))%>%
+  gf_labs(y = 'Predicted Life Expectancy')
+```
+
+```{r fig.height=3.5, fig.width=8}
+# using pred_plot #2
+require(s245)
+pred_plot(mlr, 'income')%>%
+  gf_lims(y = c(0,90))%>%
+  gf_labs(y = 'Predicted Life Expectancy')
+```
+
+```{r fig.height=3.5, fig.width=8}
+# "by hand" method
+# creating fake data
+income_pred_data <- expand.grid( income = seq(from=600, to=2800, by=100),
+                                 year = 2019,
+                                 four_regions = c('americas'))
+glimpse(income_pred_data)
+
+# predictions for fake data
+income_pred_data <- income_pred_data %>%
+  mutate(fitted = predict(mlr, newdata = income_pred_data))
+
+gf_line(fitted ~ income, data = income_pred_data)%>%
+  gf_labs(x = 'Income (dollars)', y = 'Life expectancy')
+```
+
+
+
+
+
+
+
+
+
+
+
+  

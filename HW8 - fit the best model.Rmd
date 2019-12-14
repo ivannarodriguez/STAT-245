@@ -1,0 +1,157 @@
+---
+title: "Stat 245 -- HW 08"
+author: "Ivanna Rodriguez"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  pdf_document:
+    fig_height: 2.2
+    fig_width: 4
+  html_document:
+    fig_height: 2.2
+    fig_width: 4
+  word_document:
+    fig_height: 2.2
+    fig_width: 4
+---
+
+```{r, setup, include = FALSE}
+# load packages that are going to be used
+require(tidyverse)   # this loads mosaic, ggformula, etc. too
+require(ggformula)
+require(mosaic)
+
+# Some customization.  You can alter or delete as desired (if you know what you are doing).
+
+theme_set(theme_bw(base_size=12))     # change theme for ggplot2/ggformula
+
+knitr::opts_chunk$set(
+  echo = TRUE,      # for homework, always show R code (this is the default)
+  tidy = FALSE,     # display code as typed (rather than reformatted)
+  size = "small",   # slightly smaller font for code
+  message = FALSE, warning = FALSE) # don't print warnings or messages in compiled document. So you MUST check them in RStudio!
+```
+
+
+<!-- Put your work below here.  Put text in text chunks, code in R chunks. -->
+
+# Tasks
+**Choose one of the dataset options below and fit and present the best model you can, showing all your work. Include:**
+
+**1. (5 point) Some data exploration. Minimally, a pairs plot to look for collinearity - based on the plot, state whether you suspect there will or won’t be problems. (Don’t forget to require() the GGally package)**
+
+```{r}
+# reading in the data
+credit <- read.csv('https://raw.githubusercontent.com/anup-jana/R-Machine-Learning/master/R%20Scripts/Datasets/Credit_Risk_Train_data.csv', na.strings = c('', ' '))
+
+# prep data for dredge()
+credit <- na.omit(credit)
+```
+
+```{r}
+# require package needed for collinearity plots
+require(GGally)
+```
+
+Below is a pairs plot and a correlation plot, each only using the quantitative variables in the data set: 
+
+```{r  fig.width = 7,  fig.height = 3}
+# collinearity plots
+credit_quant <- credit %>% select(ApplicantIncome, CoapplicantIncome, LoanAmount)
+ggpairs(credit_quant) # scatter plot
+ggcorr(credit_quant, label = TRUE) # heat map
+```
+
+From the plots above, we can see that there seems to be a correlation between the predictors Loan Amount and Applicant income, with a coefficient of nearly 0.6. This correlation is easier to see when looking at the heat map, as the red color shows where the strongest correlation lies. Applicant Income and Coapplicant income are the least correlated. I think that this correlation of 0.6 is not too big (though this is arbitrary) so it is not problematic. But we can do VIF to find out (and we can check for the categorical variables with VIF too, which we can't check by doing the correlation plots).
+
+**2. (5 points) Fit an initial model with as many predictors as reasonably possible, and of the right type. Think: do you have continuous data, count data, or binary data? If counts, will you use a Poisson or NB model (state a rationale); if binary, will you use logistic, probit, or cloglog regression (state a rationale)?**
+
+The model I will fit below will be a logistic regression becuase the our response variable, ```Loan_Status``` is a binary variable with values "Y" or "N".
+
+```{r}
+# Fitting the model
+credit_logistic <- glm( Loan_Status ~ Gender + Married + Dependents + Education + Self_Employed + ApplicantIncome + CoapplicantIncome + LoanAmount + Loan_Amount_Term + Credit_History + Property_Area, family=binomial(link='logit'), data=credit)
+summary(credit_logistic)
+```
+
+**3. (5 points) Check VIFs and modify your set of predictors as needed to avoid multicollinearity problems. (Don’t forget to require() the car package.)**
+
+```{r}
+# require package for VIFs
+require(car)
+```
+
+```{r}
+# check VIFs
+vif(credit_logistic)
+```
+
+The VIF values above show no real problematic results for our calculations, as none of them are even above 2. The "worst" predictors here are LoanAmount and maybe ApplicantIncome as was seen in the pairs plot and correlation plots, but even so, their VIFs are 1.67 and 1.57 respectively, so I don't see much correlation that is problematic. I don't think we should remove either.
+
+**4. (5 points) Do model assessment (show any needed figures, and briefly interpret them in the text).**
+
+```{r fig.width = 7,  fig.height = 3}
+# residuals vs fitted plot
+gf_point(resid(credit_logistic) ~ fitted(credit_logistic))
+```
+
+The residual vs fitted plot looks as we would expect. 
+
+```{r fig.width = 7,  fig.height = 3}
+# ACF plot
+acf(resid(credit_logistic))
+```
+
+There is no apparent non-independence problem as all our ACF values are within the confidence bounds for independence.
+
+Since the data is "one trial per row," I am not checking linearity.
+
+```{r}
+# require model selection package
+require(MuMIn)
+```
+
+```{r}
+# calculate BIC
+credit_logistic <- update(credit_logistic, na.action = 'na.fail')
+dredge_results <- dredge(credit_logistic, rank = 'BIC')
+head(dredge_results, 10)
+```
+
+The model selection output above shows BICs that are very close to each other, as the first four best models are less than 3 away from the second best models. We can say that the first four models are better than the last three models (with BIC of 480) because they differ by 3. However, since we did multicollinearity plots that showed not significant correlation, we are not so concerned as to what predictors to keep, and are more concerned with the predictions themselves. Because of this, model averaging seems like a good way to go. I will use the averaged model results for my prediction plots in part 5.
+
+```{r}
+dredge_avg_model <- dredge(credit_logistic)
+avg_model <- model.avg(dredge_avg_model, fit=TRUE)
+summary(avg_model)
+```
+
+**5. (5 points) Show, and interpret in the text, at least one prediction plot.**
+
+```{r}
+require(s245)
+```
+
+```{r fig.width=7, fig.height=3}
+pred_plot(avg_model, 'LoanAmount', data = credit)
+pred_plot(avg_model, 'Credit_History', data = credit)
+pred_plot(avg_model, 'Property_Area', data = credit)
+pred_plot(avg_model, 'ApplicantIncome', data = credit)
+```
+
+The prediction plots above show that our model predicts the follwing:
+
+* The higher the loan amount, the less likely the individual is to pay the loan
+* Individuals with credit history are more likely to pay the loan
+* Individuals that live in Semiurban areas are more likely to pay the loan
+* The higher the applicant's income, the less likely the individual is to pay the loan - this particular prediction plot is a bit confusing to me. I would think that the higher the applicant's income, the more likely they would be to pay the loan. There is also a lot of variability in the plot, as the intervals are trumpety, so maybe this has to do with the results too. Applicant Income was the predictor with the highest correlation, but it wasn't enough to deem it problematic. So I am not quite sure about what this prediction plot is exactly saying. 
+
+6. Not required: For added fun and learning, you may want to think about:
+
+* Should there be an offset in your model?
+* Do you want to allow interactions between any variables?
+* Do you think you may need to scale() any predictors to faciliatate model fitting?
+
+
+
+
+  

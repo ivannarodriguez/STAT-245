@@ -1,0 +1,192 @@
+---
+title: "STAT-245 HW7"
+author: "Ivanna Rodriguez"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  pdf_document:
+    fig_height: 2.2
+    fig_width: 4
+  html_document:
+    fig_height: 2.2
+    fig_width: 4
+  word_document:
+    fig_height: 2.2
+    fig_width: 4
+---
+
+```{r, setup, include = FALSE}
+# load packages that are going to be used
+require(tidyverse)   # this loads mosaic, ggformula, etc. too
+require(ggformula)
+require(mosaic)
+
+# Some customization.  You can alter or delete as desired (if you know what you are doing).
+
+theme_set(theme_bw(base_size=12))     # change theme for ggplot2/ggformula
+
+knitr::opts_chunk$set(
+  echo = TRUE,      # for homework, always show R code (this is the default)
+  tidy = FALSE,     # display code as typed (rather than reformatted)
+  size = "small",   # slightly smaller font for code
+  message = FALSE, warning = FALSE) # don't print warnings or messages in compiled document. So you MUST check them in RStudio!
+```
+
+## Part 1: Pg. 50, Problem 4 A-C
+
+The ```child.iq``` folder contains a subset of the children and mother data discussed earlier in the chapter. You have access to children’s test scores at age 3, mother’s education, and the mother’s age at the time she gave birth for a sample of 400 children. The data are a Stata file which you can read into R by saving in your working directory and then typing the following:
+
+```{r}
+# reading in the data
+require(foreign)
+child_iq <- read.dta('http://www.stat.columbia.edu/~gelman/arm/examples/child.iq/child.iq.dta') %>%
+  # modifying dataset to make our lives easier
+  rename(child_score = ppvt,
+         mom_age = momage,
+         educ_num = educ_cat) %>%
+  mutate(mom_high_school = ifelse(educ_num >= 2, 'Completed', 'Not completed'),
+    educ_cat = case_when(educ_num == 1 ~ 'No high school',
+                              educ_num == 2 ~ 'High school',
+                              educ_num == 3 ~ 'Some college',
+                              educ_num == 4 ~ 'College',
+                              TRUE ~ 'Unknown'))
+glimpse(child_iq)
+```
+
+### A. Fit a regression of child test scores on mother’s age, display the data and fitted model, check assumptions, and interpret the slope coefficient. When do you recommend mothers should give birth? What are you assuming in making these recommendations?
+
+```{r}
+# fitting a model
+child_lm <- lm(child_score ~ mom_age, data = child_iq)
+summary(child_lm)
+
+gf_point(child_score ~ mom_age, data = child_iq) %>%
+  gf_lm()
+```
+
+```{r}
+# checking assumptions
+
+# linear relationship and constant variance check
+child_iq <- child_iq %>%
+  mutate(res = resid(child_lm),
+         fitted = predict(child_lm))
+gf_point(res ~ fitted, data = child_iq)%>%
+  gf_labs(x = 'Fitted Values', y = 'Residuals')
+
+# independence check
+acf(resid(child_lm), main = '')
+
+#normality check
+gf_histogram(~resid(child_lm), bins = 15)
+
+```
+
+The conditions above seem to be met, as there is no clear sign of non-linearity in the residual plots, and the residuals seem to be spread out evenly (though clustered in the center) so the constant variance assumption looks ok. None of the ACF values seem to exceed the confidence bounds, so from this plot, there is no evidence of non-independence in the residuals. Although the histogram seems to be skewed, it seems to look normal, so the last condition of the normality of residuals should hold.
+
+```{r}
+child_lm$coefficients
+```
+
+The slope coefficient of 0.84 is saying that a child's IQ goes up by around 0.84 points for every additional year in mother's age. 
+
+I recommend mothers should give birth when they are older because the older they are, the higher their child's IQ will be based on the regression model. This is assuming that the only factor in a child's IQ score is their mom's age, without taking other factors into consideration. Additionally the sample seems to be quite young, and there might be more insight having a wider age range for mom's age.
+
+### B. Repeat this for a regression that further includes mother’s education, interpreting both slope coefficients in this model. Have your conclusions about the timing of birth changed?
+
+**For part b, you can use educ_cat or educ_num. Explain why you chose as you did.**
+
+```{r}
+# fitting the model
+child_lmb <- lm(child_score ~ mom_age + educ_cat, data = child_iq)
+summary(child_lmb)
+
+# sort by amount of education
+child_iq <- child_iq %>%
+  mutate(educ_cat = forcats::fct_relevel(educ_cat, 'No high school', 'High school', 'Some college', 'College'))
+
+gf_boxplot(child_score ~ educ_cat, data = child_iq)
+
+```
+
+I am choosing to use educ_cat instead of educ_num because categories make more sense for the regression, as the categories in educ_num would be interpreted as numbers by the regression and would get multiplied by our coefficients, and that would not make sense. It makes more sense to have indicator variables where the values are either zero or one in order to interpret the coefficients in our regression.
+
+```{r}
+child_lmb$coefficients
+```
+
+The slope coefficient of 0.29 for mom_age is saying that a child's IQ goes up by around 0.29 points for every additional year in mother's age. The coefficient in educ_catNohighschool is saying that, on average, a child's IQ goes down by -17.68 if their mother did not attend high school. Similarly, the coefficient for educ_catSomecollege is saying that a child's IQ goes down by -8.84 points if their mom attended some college, and the coefficient for educ_catHighschool goes down by -7.74 points if their mother's higher education achieved was high school. The intercept is positive, and the effect of educ_College is included in the intercept. So we can say that the coefficient for educ_College says that college has a positive effect on a child's IQ score. We can see from the boxplot above too that a child's IQ generally increases as their mom's years of education increase. There is an upward linear trend.
+
+```{r}
+# Checking assumptions
+
+# linear relationship and constant variance check
+child_iq <- child_iq %>%
+  mutate(res = resid(child_lmb),
+         fitted = predict(child_lmb))
+gf_point(res ~ fitted, data = child_iq)%>%
+  gf_labs(x = 'Fitted Values', y = 'Residuals')
+
+# independence check
+acf(resid(child_lmb), main = '')
+
+#normality check
+gf_histogram(~resid(child_lmb), bins = 15)
+
+```
+
+All the conditions seem to be met in the plots above (very similar to part A). The residuals vs Fitted values looks like it might be problematic, but this is due to there being three different coefficients that our model used with regards to the education category (college is part of the intercept). This is not a problem with a condition, but it happens because there are few predictors, and four are categorical in my model.
+
+
+### C. Now create an indicator variable reflecting whether the mother has completed high school or not. Consider interactions between the high school completion and mother’s age in family. Also, create a plot that shows the separate regression lines for each high school completion status group.
+
+**For part c, I made the variable (mom_high_school) for you in the code above, so you don’t have to create it. I think “mother’s age in family” means mom_age. To “Show the regression lines” I believe you will have to create a prediction plot by hand.**
+
+```{r}
+# fitting the model without interaction
+child_lmc <- lm(child_score ~ mom_age + mom_high_school, data = child_iq)
+summary(child_lmc)
+
+# creating a plot that shows separate regression lines
+gf_point(child_score ~ mom_age, color = ~ mom_high_school, data = child_iq)%>%
+           gf_lm()
+```
+
+```{r}
+# fitting model with interaction term
+child_lmInt <- lm(child_score ~ mom_age * mom_high_school, data = child_iq)
+summary(child_lmInt)
+```
+
+```{r}
+# showing regression lines for interaction
+new_data <- expand.grid(mom_high_school = c('Not completed', 'Completed'),
+                        mom_age = seq(from = 17, to = 29, by = 1))
+preds <- predict(child_lmInt, newdata = new_data, se.fit = TRUE)
+
+new_data <- new_data %>%
+  mutate(fitted = preds$fit,
+         lower = preds$fit - 1.96*preds$se.fit,
+         upper = preds$fit + 1.96*preds$se.fit)
+
+gf_line(fitted ~ mom_age, data = new_data, color = ~mom_high_school) %>%
+  gf_ribbon(lower + upper ~ mom_age, data = new_data, color = ~mom_high_school,
+            fill = ~mom_high_school)
+```
+
+
+### D. Finally, fit a regression of child test scores on mother’s age and education level for the first 200 children and use this model to predict test scores for the next 200. Graphically display comparisons of the predicted and actual scores for the final 200 children.
+```{r}
+
+```
+
+
+## Part 2: Model Selection. Use AIC or BIC to do model selection on your model from part C above. Which predictors and interaction(s) are retained in the best model?
+```{r}
+require(MuMIn)
+child_lmInt <- update(child_lmInt, na.action = 'na.fail')
+dredge(child_lmInt, rank = 'BIC')
+```
+
+I chose to do an BIC model selection for the model with the interaction term. the predictors that are retained in the best model, which is model 8, is only mom_high_school. This indicates that the interaction term does not have a significant effect on a child's IQ, and neither does the child's mom's age.
+
+
